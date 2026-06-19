@@ -14,7 +14,7 @@ app = Flask(__name__)
 # NOTE: This resets when Render restarts your app
 # In Phase 2 we will move this to Google Sheets for permanent storage
 conversation_store = {}
-
+processed_messages = set()  # Tracks processed message IDs to avoid duplicates
 
 # === HOME ROUTE ===
 # This is just a health check — visit your Render URL and you'll see this message
@@ -48,12 +48,16 @@ def whatsapp_message():
     phone, text = extract_message(data)
 
     # Step 3: If extraction failed, ignore and return OK
-    # We always return 200 to Meta — otherwise Meta keeps retrying
     if not phone or not text:
         return jsonify({"status": "ignored"}), 200
 
-    print(f"New message from {phone}: {text}")
-
+    # Step 3b: Deduplication — ignore if same message was processed recently
+    message_id = data.get("entry", [{}])[0].get("changes", [{}])[0].get("value", {}).get("messages", [{}])[0].get("id", "")
+    if message_id and message_id in processed_messages:
+        print(f"Duplicate message ignored: {message_id}")
+        return jsonify({"status": "duplicate"}), 200
+    if message_id:
+        processed_messages.add(message_id)
     # Step 4: Get this customer's conversation history
     # If first time messaging, start with empty history
     history = conversation_store.get(phone, [])
