@@ -1,13 +1,13 @@
 import json
 import requests
 from groq import Groq
-import google.generativeai as genai
+from google import genai
 import config
 
 # === Initialize AI clients ===
 # This creates a connection to Groq and Gemini using our API keys from config.py
 groq_client = Groq(api_key=config.GROQ_API_KEY)
-genai.configure(api_key=config.GEMINI_API_KEY)
+
 
 # === Build the system prompt ===
 # This is Sarah's instruction manual — she reads this before every reply
@@ -81,9 +81,8 @@ def ask_groq(conversation_history):
 # This runs only if Groq fails — same job, different AI
 def ask_gemini(conversation_history):
     try:
-        # Gemini uses a different format so we convert the history
-        model = genai.GenerativeModel(config.GEMINI_MODEL)
-        
+        client = genai.Client(api_key=config.GEMINI_API_KEY)
+
         # Build a single prompt from conversation history
         prompt = ""
         for msg in conversation_history:
@@ -93,13 +92,15 @@ def ask_gemini(conversation_history):
                 prompt += f"Customer: {msg['content']}\n"
             elif msg["role"] == "assistant":
                 prompt += f"Sarah: {msg['content']}\n"
-        
-        response = model.generate_content(prompt)
+
+        response = client.models.generate_content(
+            model=config.GEMINI_MODEL,
+            contents=prompt
+        )
         return response.text
     except Exception as e:
         print(f"Gemini failed: {e}")
         return None
-
 
 # === Parse Sarah's JSON reply ===
 # Sarah replies in JSON format — this function reads that JSON safely
