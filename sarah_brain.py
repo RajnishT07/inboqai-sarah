@@ -79,8 +79,13 @@ def ask_groq(conversation_history):
         
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         
+        print(f"Groq status code: {response.status_code}")
+        print(f"Groq response: {response.text[:200]}")
+        
         if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
+            content = response.json()["choices"][0]["message"]["content"]
+            print(f"Groq content: {content[:100]}")
+            return content
         else:
             print(f"Groq HTTP error: {response.status_code} - {response.text}")
             return None
@@ -88,7 +93,6 @@ def ask_groq(conversation_history):
     except Exception as e:
         print(f"Groq failed: {e}")
         return None
-
 
 # === Ask Gemini (Fallback) ===
 def ask_gemini(conversation_history):
