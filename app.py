@@ -73,9 +73,13 @@ def whatsapp_message():
     # Step 6: Save updated history
     conversation_store[phone] = result.get("updated_history", history)
 
+   
     # Step 7: Send reply to customer
-    send_reply(phone, result["reply"])
-
+    reply_text = result.get("reply", "").strip()
+    if reply_text:
+        send_reply(phone, reply_text)
+    else:
+        print(f"Empty reply detected — skipping send")
     # Step 8: Debug logs
     print(f"Sarah replied to {phone}")
     print(f"Urgency: {result.get('urgency')}")
