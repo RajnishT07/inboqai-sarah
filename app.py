@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from channels.whatsapp import verify_webhook, extract_message, send_reply
 from sarah_brain import sarah_reply
 from sheets import log_lead
+from calendar_booking import create_booking, parse_appointment_time
 import json
 
 # === Create the Flask app ===
@@ -86,7 +87,32 @@ def whatsapp_message():
     print(f"Area: {result.get('area')}")
     print(f"Ready to book: {result.get('ready_to_book')}")
 
-    # Step 9: Log lead to Google Sheets
+    # Step 9: If ready to book — create calendar appointment
+    booking_status = "New Lead"
+    if result.get("ready_to_book") and result.get("appointment_time"):
+        appointment_dt = parse_appointment_time(result.get("appointment_time"))
+        
+        if appointment_dt:
+            success, message = create_booking(
+                name=result.get("name", "Customer"),
+                phone=phone,
+                service=result.get("service", ""),
+                address=result.get("area", ""),
+                appointment_datetime=appointment_dt
+            )
+            
+            if success:
+                booking_status = "Booked"
+                print(f"Booking created for {phone}")
+            else:
+                booking_status = "Booking Failed"
+                print(f"Booking failed: {message}")
+        else:
+            booking_status = "Ready to Book"
+    elif result.get("ready_to_book"):
+        booking_status = "Ready to Book"
+
+    # Step 10: Log lead to Google Sheets
     log_lead(
         phone=phone,
         name=result.get("name"),
@@ -94,12 +120,11 @@ def whatsapp_message():
         service=result.get("service"),
         address=result.get("area"),
         urgency=result.get("urgency"),
-        status="Ready to Book" if result.get("ready_to_book") else "New Lead",
+        status=booking_status,
         last_message=text
     )
 
     return jsonify({"status": "ok"}), 200
-
 # === RUN THE APP ===
 # This starts your Flask app
 # host="0.0.0.0" means accept connections from anywhere (required for Render)
