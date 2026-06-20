@@ -1,11 +1,13 @@
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import json
 import requests
 import config
 
-# === Connect to Google Calendar ===
+CHICAGO_TZ = ZoneInfo("America/Chicago")
+
 def get_calendar_service():
     try:
         scopes = ["https://www.googleapis.com/auth/calendar"]
@@ -21,13 +23,12 @@ def get_calendar_service():
         return None
 
 
-# === Check if time slot is available ===
 def is_slot_available(service, start_datetime, end_datetime):
     try:
         events_result = service.events().list(
             calendarId=config.GOOGLE_CALENDAR_ID,
-            timeMin=start_datetime.isoformat() + "Z",
-            timeMax=end_datetime.isoformat() + "Z",
+            timeMin=start_datetime.isoformat(),
+            timeMax=end_datetime.isoformat(),
             singleEvents=True
         ).execute()
         events = events_result.get("items", [])
@@ -37,7 +38,6 @@ def is_slot_available(service, start_datetime, end_datetime):
         return False
 
 
-# === Parse appointment datetime from text ===
 def parse_appointment_time(date_text):
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"
@@ -46,21 +46,23 @@ def parse_appointment_time(date_text):
             "Content-Type": "application/json"
         }
 
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now(CHICAGO_TZ).strftime("%Y-%m-%d")
+        day_name = datetime.now(CHICAGO_TZ).strftime("%A")
 
         payload = {
             "model": config.GROQ_MODEL,
             "messages": [
                 {
                     "role": "user",
-                    "content": f"""Today is {today}.
+                    "content": f"""Today is {today} ({day_name}) in Chicago time.
 Convert this appointment time to ISO format: '{date_text}'
 Rules:
-- Use 24 hour time. 2pm = 14:00. 10am = 10:00. 2:30pm = 14:30.
+- Use 24 hour time. 2pm = 14:00. 10am = 10:00. 4:30pm = 16:30. 6pm = 18:00.
+- PM means afternoon/evening. AM means morning.
 - If day is not specified assume next available weekday
-- Reply with ONLY the ISO string like: 2026-06-23T14:30:00
-- No timezone info, no Z, no offset, just the local time
-- No extra text"""
+- Reply with ONLY the ISO string like: 2026-06-23T14:00:00
+- No timezone suffix, no Z, no +00:00, just local Chicago time
+- No extra text, no explanation"""
                 }
             ],
             "temperature": 0,
@@ -71,10 +73,11 @@ Rules:
 
         if response.status_code == 200:
             iso_string = response.json()["choices"][0]["message"]["content"].strip()
-            # Clean any extra characters
             iso_string = iso_string.replace('"', '').replace("'", '').strip()
             print(f"Parsed datetime: {iso_string}")
-            return datetime.fromisoformat(iso_string)
+            # Attach Chicago timezone so Google Calendar knows it's local time
+            naive_dt = datetime.fromisoformat(iso_string)
+            return naive_dt.replace(tzinfo=CHICAGO_TZ)
         else:
             print(f"Groq datetime parse failed: {response.text}")
             return None
@@ -84,37 +87,31 @@ Rules:
         return None
 
 
-# === Create Booking ===
 def create_booking(name, phone, service_name, address, appointment_datetime):
     try:
-        # Get calendar service connection
         cal_service = get_calendar_service()
         if not cal_service:
             return False, "Could not connect to calendar"
 
-        # Get service price from config
         price = config.BUSINESS_SERVICES.get(service_name, "")
 
-        # Appointment duration — 2 hours
         start_time = appointment_datetime
         end_time = appointment_datetime + timedelta(hours=2)
 
-        # Check availability
         if not is_slot_available(cal_service, start_time, end_time):
             return False, "That time slot is already booked"
 
-        # Build the calendar event
         event = {
             "summary": f"{service_name} — {name}",
             "location": address,
             "description": f"Customer: {name}\nPhone: {phone}\nService: {service_name}\nPrice: {price}\nAddress: {address}\nBooked via: WhatsApp (Sarah AI)",
             "start": {
-            "dateTime": start_time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "timeZone": "America/Chicago"
-        },
-        "end": {
-            "dateTime": end_time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "timeZone": "America/Chicago"
+                "dateTime": start_time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "timeZone": "America/Chicago"
+            },
+            "end": {
+                "dateTime": end_time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "timeZone": "America/Chicago"
             },
             "reminders": {
                 "useDefault": False,
@@ -125,7 +122,6 @@ def create_booking(name, phone, service_name, address, appointment_datetime):
             }
         }
 
-        # Create the event
         created_event = cal_service.events().insert(
             calendarId=config.GOOGLE_CALENDAR_ID,
             body=event
