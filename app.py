@@ -107,14 +107,12 @@ def whatsapp_message():
     print(f"Area: {result.get('area')}")
     print(f"Ready to book: {result.get('ready_to_book')}")
 
-    # Step 9: If ready to book — create calendar appointment
-    # Step 9: If ready to book — create calendar appointment
+   # Step 9: If ready to book — create calendar appointment
     booking_status = "New Lead"
     full_address = result.get("address") or result.get("area") or ""
 
-    if result.get("ready_to_book") and result.get("appointment_time"):        
+    if result.get("ready_to_book") and result.get("appointment_time"):
         appointment_dt = parse_appointment_time(result.get("appointment_time"))
-        
         if appointment_dt:
             success, message = create_booking(
                 name=result.get("name", "Customer"),
@@ -123,23 +121,9 @@ def whatsapp_message():
                 address=full_address,
                 appointment_datetime=appointment_dt
             )
-            
-            if result.get("ready_to_book") and result.get("appointment_time"):
-        appointment_dt = parse_appointment_time(result.get("appointment_time"))
-        
-        if appointment_dt:
-            success, message = create_booking(
-                name=result.get("name", "Customer"),
-                phone=phone,
-                service_name=result.get("service", ""),
-                address=full_address,
-                appointment_datetime=appointment_dt
-            )
-            
             if success:
                 booking_status = "Booked"
                 print(f"Booking created for {phone}")
-                # Tell Sarah booking succeeded
                 conversation_history = result.get("updated_history", history)
                 conversation_history.append({
                     "role": "system",
@@ -149,7 +133,6 @@ def whatsapp_message():
             else:
                 booking_status = "Booking Failed"
                 print(f"Booking failed: {message}")
-                # Tell Sarah booking failed
                 conversation_history = result.get("updated_history", history)
                 conversation_history.append({
                     "role": "system",
@@ -160,7 +143,6 @@ def whatsapp_message():
             booking_status = "Ready to Book"
     elif result.get("ready_to_book"):
         booking_status = "Ready to Book"
-
     # Step 10: Log lead to Google Sheets
     # Use full address if available, otherwise fall back to area
     full_address = result.get("address") or result.get("area") or ""
