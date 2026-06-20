@@ -5,22 +5,11 @@ from sheets import log_lead, get_lead
 from calendar_booking import create_booking, parse_appointment_time
 import json
 
-# === Create the Flask app ===
-# This one line creates your entire web application
 app = Flask(__name__)
 
-# === In-memory conversation storage ===
-# This dictionary holds conversation history for each customer
-# Key = phone number, Value = list of messages
-# Example: {"911234567890": [{"role": "user", "content": "Hi"}, ...]}
-# NOTE: This resets when Render restarts your app
-# In Phase 2 we will move this to Google Sheets for permanent storage
 conversation_store = {}
-processed_messages = set()  # Tracks processed message IDs to avoid duplicates
+processed_messages = set()
 
-# === HOME ROUTE ===
-# This is just a health check — visit your Render URL and you'll see this message
-# Useful to confirm your app is running
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
@@ -29,50 +18,39 @@ def home():
         "version": "1.0"
     }), 200
 
-
-# === WHATSAPP WEBHOOK — GET ===
-# Meta calls this route ONCE when you first connect WhatsApp
-# It's just a verification check — "are you really the app owner?"
 @app.route("/webhook/whatsapp", methods=["GET"])
 def whatsapp_verify():
     return verify_webhook(request)
 
-
-# === WHATSAPP WEBHOOK — POST ===
-# Meta calls this route EVERY TIME a customer sends a message
-# This is the main route — where everything happens
 @app.route("/webhook/whatsapp", methods=["POST"])
 def whatsapp_message():
-    # Step 1: Get the data Meta sent us
+    # Step 1: Get data Meta sent
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"status": "ignored"}), 200
 
-    # Step 2: Extract phone number and message text
+    # Step 2: Extract phone and message
     phone, text = extract_message(data)
 
-    # Step 3: If extraction failed, ignore and return OK
+    # Step 3: If extraction failed ignore
     if not phone or not text:
         return jsonify({"status": "ignored"}), 200
 
-    # Step 3b: Deduplication — ignore if same message was processed recently
+    # Step 3b: Deduplication
     message_id = data.get("entry", [{}])[0].get("changes", [{}])[0].get("value", {}).get("messages", [{}])[0].get("id", "")
     if message_id and message_id in processed_messages:
         print(f"Duplicate message ignored: {message_id}")
         return jsonify({"status": "duplicate"}), 200
     if message_id:
         processed_messages.add(message_id)
-    # Step 4: Get this customer's conversation history
-    # If first time messaging, start with empty history
+
+    # Step 4: Get conversation history
     history = conversation_store.get(phone, [])
 
-    # Step 4b: If no history in memory, check Google Sheets
-    # This handles Render restarts — Sarah remembers returning customers
-    existing_lead = None
+    # Step 4b: Load from Sheets if memory is empty
     if not history:
         existing_lead = get_lead(phone)
         if existing_lead:
-            # Build a context message so Sarah knows this customer already
             known_info = []
             if existing_lead.get("name"):
                 known_info.append(f"Customer name: {existing_lead['name']}")
@@ -80,26 +58,25 @@ def whatsapp_message():
                 known_info.append(f"Previously interested in: {existing_lead['service']}")
             if existing_lead.get("address"):
                 known_info.append(f"Address: {existing_lead['address']}")
-            
             if known_info:
                 context = "RETURNING CUSTOMER — you already know: " + ", ".join(known_info)
                 history = [{"role": "system", "content": context}]
                 print(f"Loaded existing customer: {existing_lead.get('name')}")
 
-    # Step 5: Send to Sarah's brain and get reply
+    # Step 5: Send to Sarah's brain
     result = sarah_reply(
         customer_message=text,
         conversation_history=history,
         customer_phone=phone
     )
 
-    # Step 6: Save updated conversation history back to store
+    # Step 6: Save updated history
     conversation_store[phone] = result.get("updated_history", history)
 
-    # Step 7: Send Sarah's reply back to the customer on WhatsApp
+    # Step 7: Send reply to customer
     send_reply(phone, result["reply"])
 
-    # Step 8: Print what Sarah detected (for debugging)
+    # Step 8: Debug logs
     print(f"Sarah replied to {phone}")
     print(f"Urgency: {result.get('urgency')}")
     print(f"Name: {result.get('name')}")
@@ -107,7 +84,7 @@ def whatsapp_message():
     print(f"Area: {result.get('area')}")
     print(f"Ready to book: {result.get('ready_to_book')}")
 
-   # Step 9: If ready to book — create calendar appointment
+    # Step 9: Handle booking
     booking_status = "New Lead"
     full_address = result.get("address") or result.get("area") or ""
 
@@ -143,10 +120,8 @@ def whatsapp_message():
             booking_status = "Ready to Book"
     elif result.get("ready_to_book"):
         booking_status = "Ready to Book"
-    # Step 10: Log lead to Google Sheets
-    # Use full address if available, otherwise fall back to area
-    full_address = result.get("address") or result.get("area") or ""
 
+    # Step 10: Log to Google Sheets
     log_lead(
         phone=phone,
         name=result.get("name"),
@@ -159,9 +134,6 @@ def whatsapp_message():
     )
 
     return jsonify({"status": "ok"}), 200
-# === RUN THE APP ===
-# This starts your Flask app
-# host="0.0.0.0" means accept connections from anywhere (required for Render)
-# port=5000 is the default Flask port
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
