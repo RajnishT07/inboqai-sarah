@@ -71,11 +71,12 @@ def ask_groq(conversation_history):
         }
         
         payload = {
-            "model": config.GROQ_MODEL,
-            "messages": conversation_history,
-            "temperature": 0.7,
-            "max_tokens": 500
-        }
+    "model": config.GROQ_MODEL,
+    "messages": conversation_history,
+    "temperature": 0.7,
+    "max_tokens": 500,
+    "response_format": {"type": "json_object"}
+}
         
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         
