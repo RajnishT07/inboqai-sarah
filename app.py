@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from channels.whatsapp import verify_webhook, extract_message, send_reply
 from sarah_brain import sarah_reply
-from sheets import log_lead
+from sheets import log_lead, get_lead
 from calendar_booking import create_booking, parse_appointment_time
 import json
 
@@ -65,6 +65,26 @@ def whatsapp_message():
     # Step 4: Get this customer's conversation history
     # If first time messaging, start with empty history
     history = conversation_store.get(phone, [])
+
+    # Step 4b: If no history in memory, check Google Sheets
+    # This handles Render restarts — Sarah remembers returning customers
+    existing_lead = None
+    if not history:
+        existing_lead = get_lead(phone)
+        if existing_lead:
+            # Build a context message so Sarah knows this customer already
+            known_info = []
+            if existing_lead.get("name"):
+                known_info.append(f"Customer name: {existing_lead['name']}")
+            if existing_lead.get("service"):
+                known_info.append(f"Previously interested in: {existing_lead['service']}")
+            if existing_lead.get("address"):
+                known_info.append(f"Address: {existing_lead['address']}")
+            
+            if known_info:
+                context = "RETURNING CUSTOMER — you already know: " + ", ".join(known_info)
+                history = [{"role": "system", "content": context}]
+                print(f"Loaded existing customer: {existing_lead.get('name')}")
 
     # Step 5: Send to Sarah's brain and get reply
     result = sarah_reply(
