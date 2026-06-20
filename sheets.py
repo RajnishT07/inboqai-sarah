@@ -105,3 +105,32 @@ def log_lead(phone, name, channel, service, address, urgency, status, last_messa
     except Exception as e:
         print(f"Google Sheets log failed: {e}")
         return False
+# === Get existing lead data ===
+# When a customer messages, load their existing data from Sheets
+# So Sarah remembers them even after Render restarts
+def get_lead(phone):
+    try:
+        sheet = get_sheet()
+        if not sheet:
+            return None
+        
+        all_rows = sheet.get_all_values()
+        
+        for row in all_rows[1:]:
+            if row and row[0] == str(phone):
+                return {
+                    "phone": row[0] if len(row) > 0 else None,
+                    "name": row[1] if len(row) > 1 else None,
+                    "channel": row[2] if len(row) > 2 else None,
+                    "service": row[3] if len(row) > 3 else None,
+                    "address": row[4] if len(row) > 4 else None,
+                    "urgency": row[5] if len(row) > 5 else None,
+                    "status": row[6] if len(row) > 6 else None,
+                    "last_message": row[7] if len(row) > 7 else None,
+                }
+        
+        return None
+        
+    except Exception as e:
+        print(f"Get lead failed: {e}")
+        return None
