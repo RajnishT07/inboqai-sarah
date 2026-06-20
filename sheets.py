@@ -80,7 +80,12 @@ def log_lead(phone, name, channel, service, address, urgency, status, last_messa
             # We only update fields that have new information
             existing_row = all_rows[existing_row_index - 1]
             
-            # Keep existing values if new ones are empty
+           # Never downgrade a "Booked" status back to "New Lead"
+            existing_status = existing_row[6] if len(existing_row) > 6 else ""
+            new_status = row_data[6]
+            if existing_status == "Booked" and new_status != "Booked":
+                new_status = "Booked"
+
             updated_row = [
                 row_data[0],  # Phone never changes
                 row_data[1] if row_data[1] else (existing_row[1] if len(existing_row) > 1 else ""),
@@ -88,7 +93,7 @@ def log_lead(phone, name, channel, service, address, urgency, status, last_messa
                 row_data[3] if row_data[3] else (existing_row[3] if len(existing_row) > 3 else ""),
                 row_data[4] if row_data[4] else (existing_row[4] if len(existing_row) > 4 else ""),
                 row_data[5] if row_data[5] else (existing_row[5] if len(existing_row) > 5 else ""),
-                row_data[6],  # Status always updates
+                new_status,   # Protected status
                 row_data[7],  # Last message always updates
                 row_data[8]   # Timestamp always updates
             ]
