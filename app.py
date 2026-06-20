@@ -108,8 +108,11 @@ def whatsapp_message():
     print(f"Ready to book: {result.get('ready_to_book')}")
 
     # Step 9: If ready to book — create calendar appointment
+    # Step 9: If ready to book — create calendar appointment
     booking_status = "New Lead"
-    if result.get("ready_to_book") and result.get("appointment_time"):
+    full_address = result.get("address") or result.get("area") or ""
+
+    if result.get("ready_to_book") and result.get("appointment_time"):        
         appointment_dt = parse_appointment_time(result.get("appointment_time"))
         
         if appointment_dt:
