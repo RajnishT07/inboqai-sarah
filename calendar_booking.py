@@ -53,13 +53,14 @@ def parse_appointment_time(date_text):
             "messages": [
                 {
                     "role": "user",
-                    "content": f"""Today is {today} (Friday).
+                    "content": f"""Today is {today}.
 Convert this appointment time to ISO format: '{date_text}'
 Rules:
-- Use 24-hour time (2pm = 14:00, 10am = 10:00)
+- Use 24 hour time. 2pm = 14:00. 10am = 10:00. 2:30pm = 14:30.
 - If day is not specified assume next available weekday
-- Reply with ONLY the ISO string like: 2026-06-21T14:00:00
-- No extra text, no explanation"""
+- Reply with ONLY the ISO string like: 2026-06-23T14:30:00
+- No timezone info, no Z, no offset, just the local time
+- No extra text"""
                 }
             ],
             "temperature": 0,
@@ -108,12 +109,12 @@ def create_booking(name, phone, service_name, address, appointment_datetime):
             "location": address,
             "description": f"Customer: {name}\nPhone: {phone}\nService: {service_name}\nPrice: {price}\nAddress: {address}\nBooked via: WhatsApp (Sarah AI)",
             "start": {
-                "dateTime": start_time.isoformat(),
-                "timeZone": "America/Chicago"
-            },
-            "end": {
-                "dateTime": end_time.isoformat(),
-                "timeZone": "America/Chicago"
+            "dateTime": start_time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "timeZone": "America/Chicago"
+        },
+        "end": {
+            "dateTime": end_time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "timeZone": "America/Chicago"
             },
             "reminders": {
                 "useDefault": False,
