@@ -57,12 +57,13 @@ def parse_appointment_time(date_text):
                     "content": f"""Today is {today} ({day_name}) in Chicago time.
 Convert this appointment time to ISO format: '{date_text}'
 Rules:
-- Use 24 hour time. 2pm = 14:00. 10am = 10:00. 4:30pm = 16:30. 6pm = 18:00.
-- PM means afternoon/evening. AM means morning.
-- If day is not specified assume next available weekday
-- Reply with ONLY the ISO string like: 2026-06-23T14:00:00
-- No timezone suffix, no Z, no +00:00, just local Chicago time
-- No extra text, no explanation"""
+- IMPORTANT: Never pick a date in the past. Always use future dates only.
+- If someone says "Friday" and today is Saturday, they mean NEXT Friday.
+- Use 24 hour time. 2pm = 14:00. 3pm = 15:00. 10am = 10:00.
+- PM means afternoon. AM means morning.
+- Reply with ONLY the ISO string like: 2026-06-26T15:00:00
+- No timezone suffix, no Z, no +00:00
+- No extra text"""
                 }
             ],
             "temperature": 0,
