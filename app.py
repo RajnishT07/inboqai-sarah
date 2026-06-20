@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from channels.whatsapp import verify_webhook, extract_message, send_reply
 from sarah_brain import sarah_reply
+from sheets import log_lead
 import json
 
 # === Create the Flask app ===
