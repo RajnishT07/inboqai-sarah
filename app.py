@@ -116,8 +116,8 @@ def whatsapp_message():
             success, message = create_booking(
                 name=result.get("name", "Customer"),
                 phone=phone,
-                service=result.get("service", ""),
-                address=result.get("area", ""),
+                service_name=result.get("service", ""),
+                address=full_address,
                 appointment_datetime=appointment_dt
             )
             
@@ -133,12 +133,15 @@ def whatsapp_message():
         booking_status = "Ready to Book"
 
     # Step 10: Log lead to Google Sheets
+    # Use full address if available, otherwise fall back to area
+    full_address = result.get("address") or result.get("area") or ""
+
     log_lead(
         phone=phone,
         name=result.get("name"),
         channel="WhatsApp",
         service=result.get("service"),
-        address=result.get("area"),
+        address=full_address,
         urgency=result.get("urgency"),
         status=booking_status,
         last_message=text
