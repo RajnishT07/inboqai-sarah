@@ -42,7 +42,9 @@ def whatsapp_verify():
 @app.route("/webhook/whatsapp", methods=["POST"])
 def whatsapp_message():
     # Step 1: Get the data Meta sent us
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"status": "ignored"}), 200
 
     # Step 2: Extract phone number and message text
     phone, text = extract_message(data)
