@@ -124,12 +124,38 @@ def whatsapp_message():
                 appointment_datetime=appointment_dt
             )
             
+            if result.get("ready_to_book") and result.get("appointment_time"):
+        appointment_dt = parse_appointment_time(result.get("appointment_time"))
+        
+        if appointment_dt:
+            success, message = create_booking(
+                name=result.get("name", "Customer"),
+                phone=phone,
+                service_name=result.get("service", ""),
+                address=full_address,
+                appointment_datetime=appointment_dt
+            )
+            
             if success:
                 booking_status = "Booked"
                 print(f"Booking created for {phone}")
+                # Tell Sarah booking succeeded
+                conversation_history = result.get("updated_history", history)
+                conversation_history.append({
+                    "role": "system",
+                    "content": "BOOKING SUCCESS: Appointment successfully created in calendar. Send the booking confirmed message with all details and emojis."
+                })
+                conversation_store[phone] = conversation_history
             else:
                 booking_status = "Booking Failed"
                 print(f"Booking failed: {message}")
+                # Tell Sarah booking failed
+                conversation_history = result.get("updated_history", history)
+                conversation_history.append({
+                    "role": "system",
+                    "content": f"BOOKING FAILED: {message}. Tell the customer that time slot is unavailable and ask them to pick a different date and time. Do NOT say booking confirmed."
+                })
+                conversation_store[phone] = conversation_history
         else:
             booking_status = "Ready to Book"
     elif result.get("ready_to_book"):
