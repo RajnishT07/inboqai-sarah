@@ -86,8 +86,19 @@ def whatsapp_message():
     print(f"Area: {result.get('area')}")
     print(f"Ready to book: {result.get('ready_to_book')}")
 
-    return jsonify({"status": "ok"}), 200
+    # Step 9: Log lead to Google Sheets
+    log_lead(
+        phone=phone,
+        name=result.get("name"),
+        channel="WhatsApp",
+        service=result.get("service"),
+        address=result.get("area"),
+        urgency=result.get("urgency"),
+        status="Ready to Book" if result.get("ready_to_book") else "New Lead",
+        last_message=text
+    )
 
+    return jsonify({"status": "ok"}), 200
 
 # === RUN THE APP ===
 # This starts your Flask app
