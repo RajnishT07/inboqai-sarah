@@ -65,11 +65,11 @@ You must always reply in this exact JSON format and nothing else:
   "urgency": "URGENT or CASUAL",
   "name": "customer name or null if not known yet",
   "service": "service name or null if not known yet",
-  "area": "their area or null if not known yet",
+  "area": "city name only (Dallas, Plano, Frisco, or McKinney) or null if not known yet",
+  "address": "full street address or null if not known yet",
   "appointment_time": "their preferred date and time as text or null if not known yet",
   "ready_to_book": true or false
 }}"""
-
 # === Ask Groq via direct HTTP request ===
 # We call Groq's REST API directly using requests
 # This avoids the groq package and all its httpx dependency issues
