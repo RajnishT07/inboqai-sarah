@@ -35,3 +35,11 @@ BUSINESS_SERVICES = {
     "Move-Out Clean": "$300"
 }
 BUSINESS_AREAS = ["Dallas", "Plano", "Frisco", "McKinney"]
+
+# === INSTAGRAM (Meta) ===
+INSTAGRAM_TOKEN = os.environ.get("INSTAGRAM_TOKEN")
+INSTAGRAM_ACCOUNT_ID = os.environ.get("INSTAGRAM_ACCOUNT_ID")
+
+# === FACEBOOK MESSENGER (Meta) ===
+FACEBOOK_TOKEN = os.environ.get("FACEBOOK_TOKEN")
+FACEBOOK_PAGE_ID = os.environ.get("FACEBOOK_PAGE_ID")
