@@ -7,38 +7,63 @@ import config
 def extract_message(data):
     try:
         print(f"Instagram raw data: {data}")
-        
+
         entry = data["entry"][0]
-        messaging = entry["messaging"][0]
+        
+        # Instagram uses 'changes' structure
+        if "changes" in entry:
+            change = entry["changes"][0]
+            value = change["value"]
+            
+            sender_id = value["sender"]["id"]
+            
+            if "message" not in value:
+                return None, None
+            
+            message = value["message"]
+            
+            if message.get("is_echo"):
+                return None, None
+            
+            if "text" not in message:
+                return None, None
+            
+            text = message["text"]
+            return sender_id, text
 
-        # Ignore message_edit events
-        if "message_edit" in messaging:
-            print("Ignoring message_edit event")
-            return None, None
+        # Fallback: messaging structure
+        elif "messaging" in entry:
+            messaging = entry["messaging"][0]
+            
+            if "message_edit" in messaging:
+                print("Ignoring message_edit event")
+                return None, None
+            
+            if "sender" not in messaging:
+                return None, None
+            
+            sender_id = messaging["sender"]["id"]
+            
+            if "message" not in messaging:
+                return None, None
+            
+            message = messaging["message"]
+            
+            if message.get("is_echo"):
+                return None, None
+            
+            if "text" not in message:
+                return None, None
+            
+            text = message["text"]
+            return sender_id, text
 
-        # Ignore if no sender
-        if "sender" not in messaging:
-            return None, None
-
-        sender_id = messaging["sender"]["id"]
-
-        if "message" not in messaging:
-            return None, None
-
-        message = messaging["message"]
-
-        if message.get("is_echo"):
-            return None, None
-
-        if "text" not in message:
-            return None, None
-
-        text = message["text"]
-        return sender_id, text
+        return None, None
 
     except Exception as e:
         print(f"Error extracting Instagram message: {e}")
         return None, None
+        
         
         message = messaging["message"]
 
