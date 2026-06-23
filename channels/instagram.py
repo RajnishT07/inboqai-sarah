@@ -6,13 +6,22 @@ import config
 # This function digs in and pulls out the sender's ID and message text
 def extract_message(data):
     try:
-        print(f"Instagram raw data: {data}")  # ADD THIS LINE
+        print(f"Instagram raw data: {data}")
         
         entry = data["entry"][0]
         messaging = entry["messaging"][0]
 
+        # Ignore message_edit events
+        if "message_edit" in messaging:
+            print("Ignoring message_edit event")
+            return None, None
+
+        # Ignore if no sender
+        if "sender" not in messaging:
+            return None, None
+
         sender_id = messaging["sender"]["id"]
-        
+
         if "message" not in messaging:
             return None, None
 
@@ -30,6 +39,7 @@ def extract_message(data):
     except Exception as e:
         print(f"Error extracting Instagram message: {e}")
         return None, None
+        
         message = messaging["message"]
 
         # Ignore if it's an echo (your own sent messages)
