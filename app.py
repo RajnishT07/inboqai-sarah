@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from channels.whatsapp import verify_webhook, extract_message, send_reply
+from channels.instagram import extract_message as instagram_extract, send_reply as instagram_send
 from sarah_brain import sarah_reply
 from sheets import log_lead, get_lead
 from calendar_booking import create_booking, parse_appointment_time
@@ -17,6 +18,8 @@ def home():
         "app": "InboqAI Sarah",
         "version": "1.0"
     }), 200
+
+# ===== WHATSAPP WEBHOOK =====
 
 @app.route("/webhook/whatsapp", methods=["GET"])
 def whatsapp_verify():
@@ -73,13 +76,13 @@ def whatsapp_message():
     # Step 6: Save updated history
     conversation_store[phone] = result.get("updated_history", history)
 
-   
     # Step 7: Send reply to customer
     reply_text = result.get("reply", "").strip()
     if reply_text:
         send_reply(phone, reply_text)
     else:
         print(f"Empty reply detected — skipping send")
+
     # Step 8: Debug logs
     print(f"Sarah replied to {phone}")
     print(f"Urgency: {result.get('urgency')}")
@@ -138,6 +141,7 @@ def whatsapp_message():
     )
 
     return jsonify({"status": "ok"}), 200
+
 # ===== INSTAGRAM WEBHOOK =====
 
 @app.route("/webhook/instagram", methods=["GET"])
@@ -152,9 +156,57 @@ def instagram_verify():
     else:
         return 'Forbidden', 403
 
+@app.route("/webhook/instagram", methods=["POST"])
+def instagram_message():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"status": "ignored"}), 200
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    # Extract sender ID and message
+    sender_id, text = instagram_extract(data)
+
+    if not sender_id or not text:
+        return jsonify({"status": "ignored"}), 200
+
+    # Get conversation history
+    history = conversation_store.get(sender_id, [])
+
+    # Send to Sarah's brain
+    result = sarah_reply(
+        customer_message=text,
+        conversation_history=history,
+        customer_phone=sender_id
+    )
+
+    # Save updated history
+    conversation_store[sender_id] = result.get("updated_history", history)
+
+    # Send reply
+    reply_text = result.get("reply", "").strip()
+    if reply_text:
+        instagram_send(sender_id, reply_text)
+    else:
+        print(f"Empty Instagram reply detected — skipping send")
+
+    # Debug logs
+    print(f"Sarah replied on Instagram to {sender_id}")
+    print(f"Urgency: {result.get('urgency')}")
+    print(f"Name: {result.get('name')}")
+    print(f"Service: {result.get('service')}")
+
+    # Log to Google Sheets
+    log_lead(
+        phone=sender_id,
+        name=result.get("name"),
+        channel="Instagram",
+        service=result.get("service"),
+        address=result.get("address") or result.get("area") or "",
+        urgency=result.get("urgency"),
+        status="New Lead",
+        last_message=text
+    )
+
+    return jsonify({"status": "ok"}), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
