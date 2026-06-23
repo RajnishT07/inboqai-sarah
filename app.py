@@ -138,6 +138,23 @@ def whatsapp_message():
     )
 
     return jsonify({"status": "ok"}), 200
+# ===== INSTAGRAM WEBHOOK =====
+
+@app.route("/webhook/instagram", methods=["GET"])
+def instagram_verify():
+    mode = request.args.get('hub.mode')
+    token = request.args.get('hub.verify_token')
+    challenge = request.args.get('hub.challenge')
+
+    if mode == 'subscribe' and token == 'inboqai2024':
+        print("Instagram webhook verified!")
+        return challenge, 200
+    else:
+        return 'Forbidden', 403
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
