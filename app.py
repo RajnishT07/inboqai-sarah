@@ -158,11 +158,12 @@ def instagram_message():
 
     history = conversation_store.get(sender_id, [])
 
-    result = sarah_reply(
-        customer_message=text,
-        conversation_history=history,
-        customer_phone=sender_id
-    )
+   result = sarah_reply(
+    customer_message=text,
+    conversation_history=history,
+    customer_phone=sender_id,
+    channel="Instagram"
+)
 
     conversation_store[sender_id] = result.get("updated_history", history)
 
@@ -218,11 +219,11 @@ def facebook_message():
     history = conversation_store.get(sender_id, [])
 
     result = sarah_reply(
-        customer_message=text,
-        conversation_history=history,
-        customer_phone=sender_id
-    )
-
+    customer_message=text,
+    conversation_history=history,
+    customer_phone=sender_id,
+    channel="Facebook"
+)
     conversation_store[sender_id] = result.get("updated_history", history)
 
     reply_text = result.get("reply", "").strip()
