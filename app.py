@@ -4,6 +4,7 @@ from channels.instagram import extract_message as instagram_extract, send_reply 
 from sarah_brain import sarah_reply
 from sheets import log_lead, get_lead
 from calendar_booking import create_booking, parse_appointment_time
+from channels.facebook import extract_message as facebook_extract, send_reply as facebook_send
 import json
 
 app = Flask(__name__)
