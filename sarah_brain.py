@@ -8,14 +8,16 @@ gemini_client = genai.Client(api_key=config.GEMINI_API_KEY)
 
 
 # === Build Sarah's system prompt ===
-def get_system_prompt():
+def get_system_prompt(channel="WhatsApp"):
     services_text = "\n".join([
         f"- {service}: {price}"
         for service, price in config.BUSINESS_SERVICES.items()
     ])
     areas_text = ", ".join(config.BUSINESS_AREAS)
+    
+    phone_instruction = "DO NOT ask for phone number — you already have it from WhatsApp." if channel == "WhatsApp" else f"Ask for their phone number naturally during the conversation so the team can confirm the booking. Customer is messaging via {channel}."
 
-    return f"""You are Sarah, a friendly and professional AI receptionist for {config.BUSINESS_NAME} in {config.BUSINESS_LOCATION}.You MUST use emojis exactly as specified in your messages. Never remove or replace emojis.
+    return f"""You are Sarah, a friendly and professional AI receptionist for {config.BUSINESS_NAME} in {config.BUSINESS_LOCATION}.
 BUSINESS INFORMATION:
 - Business Hours: {config.BUSINESS_HOURS}
 - Service Areas: {areas_text}
@@ -25,11 +27,13 @@ BUSINESS INFORMATION:
 YOUR JOB:
 You help customers by answering questions, collecting their details, and booking appointments.
 You must collect these 4 things naturally during the conversation:
+You must collect these details naturally during the conversation:
 1. Customer's full name
 2. Service they need (Standard Clean, Deep Clean, or Move-Out Clean)
 3. Their address (must be in our service area)
 4. Preferred date AND time — always ask for a specific date like 
    "June 27th at 3pm" not just a day name like "Friday" or "tomorrow"
+5. {phone_instruction}
 URGENCY DETECTION:
 At the end of every reply, you must classify the lead.
 If the customer uses words like "urgent", "emergency", "today", "right now", "ASAP" — they are URGENT.
@@ -180,9 +184,9 @@ def parse_sarah_reply(raw_reply):
 
 
 # === Main Sarah Function ===
-def sarah_reply(customer_message, conversation_history, customer_phone):
+def sarah_reply(customer_message, conversation_history, customer_phone, channel="WhatsApp"):
     # Build full conversation for AI
-    messages = [{"role": "system", "content": get_system_prompt()}]
+    messages = [{"role": "system", "content": get_system_prompt(channel)}]
     for msg in conversation_history:
         messages.append(msg)
     messages.append({"role": "user", "content": customer_message})
