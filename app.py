@@ -1,10 +1,10 @@
 from flask import Flask, request, jsonify
 from channels.whatsapp import verify_webhook, extract_message, send_reply
 from channels.instagram import extract_message as instagram_extract, send_reply as instagram_send
+from channels.facebook import extract_message as facebook_extract, send_reply as facebook_send
 from sarah_brain import sarah_reply
 from sheets import log_lead, get_lead
 from calendar_booking import create_booking, parse_appointment_time
-from channels.facebook import extract_message as facebook_extract, send_reply as facebook_send
 import json
 
 app = Flask(__name__)
@@ -28,19 +28,15 @@ def whatsapp_verify():
 
 @app.route("/webhook/whatsapp", methods=["POST"])
 def whatsapp_message():
-    # Step 1: Get data Meta sent
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"status": "ignored"}), 200
 
-    # Step 2: Extract phone and message
     phone, text = extract_message(data)
 
-    # Step 3: If extraction failed ignore
     if not phone or not text:
         return jsonify({"status": "ignored"}), 200
 
-    # Step 3b: Deduplication
     message_id = data.get("entry", [{}])[0].get("changes", [{}])[0].get("value", {}).get("messages", [{}])[0].get("id", "")
     if message_id and message_id in processed_messages:
         print(f"Duplicate message ignored: {message_id}")
@@ -48,10 +44,8 @@ def whatsapp_message():
     if message_id:
         processed_messages.add(message_id)
 
-    # Step 4: Get conversation history
     history = conversation_store.get(phone, [])
 
-    # Step 4b: Load from Sheets if memory is empty
     if not history:
         existing_lead = get_lead(phone)
         if existing_lead:
@@ -67,24 +61,20 @@ def whatsapp_message():
                 history = [{"role": "system", "content": context}]
                 print(f"Loaded existing customer: {existing_lead.get('name')}")
 
-    # Step 5: Send to Sarah's brain
     result = sarah_reply(
         customer_message=text,
         conversation_history=history,
         customer_phone=phone
     )
 
-    # Step 6: Save updated history
     conversation_store[phone] = result.get("updated_history", history)
 
-    # Step 7: Send reply to customer
     reply_text = result.get("reply", "").strip()
     if reply_text:
         send_reply(phone, reply_text)
     else:
         print(f"Empty reply detected — skipping send")
 
-    # Step 8: Debug logs
     print(f"Sarah replied to {phone}")
     print(f"Urgency: {result.get('urgency')}")
     print(f"Name: {result.get('name')}")
@@ -92,7 +82,6 @@ def whatsapp_message():
     print(f"Area: {result.get('area')}")
     print(f"Ready to book: {result.get('ready_to_book')}")
 
-    # Step 9: Handle booking
     booking_status = "New Lead"
     full_address = result.get("address") or result.get("area") or ""
 
@@ -129,7 +118,6 @@ def whatsapp_message():
     elif result.get("ready_to_book"):
         booking_status = "Ready to Book"
 
-    # Step 10: Log to Google Sheets
     log_lead(
         phone=phone,
         name=result.get("name"),
@@ -163,39 +151,32 @@ def instagram_message():
     if not data:
         return jsonify({"status": "ignored"}), 200
 
-    # Extract sender ID and message
     sender_id, text = instagram_extract(data)
 
     if not sender_id or not text:
         return jsonify({"status": "ignored"}), 200
 
-    # Get conversation history
     history = conversation_store.get(sender_id, [])
 
-    # Send to Sarah's brain
     result = sarah_reply(
         customer_message=text,
         conversation_history=history,
         customer_phone=sender_id
     )
 
-    # Save updated history
     conversation_store[sender_id] = result.get("updated_history", history)
 
-    # Send reply
     reply_text = result.get("reply", "").strip()
     if reply_text:
         instagram_send(sender_id, reply_text)
     else:
-        print(f"Empty Instagram reply detected — skipping send")
+        print(f"Empty Instagram reply — skipping send")
 
-    # Debug logs
     print(f"Sarah replied on Instagram to {sender_id}")
     print(f"Urgency: {result.get('urgency')}")
     print(f"Name: {result.get('name')}")
     print(f"Service: {result.get('service')}")
 
-    # Log to Google Sheets
     log_lead(
         phone=sender_id,
         name=result.get("name"),
@@ -208,7 +189,7 @@ def instagram_message():
     )
 
     return jsonify({"status": "ok"}), 200
-    
+
 # ===== FACEBOOK MESSENGER WEBHOOK =====
 
 @app.route("/webhook/facebook", methods=["GET"])
@@ -222,6 +203,49 @@ def facebook_verify():
         return challenge, 200
     else:
         return 'Forbidden', 403
+
+@app.route("/webhook/facebook", methods=["POST"])
+def facebook_message():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"status": "ignored"}), 200
+
+    sender_id, text = facebook_extract(data)
+
+    if not sender_id or not text:
+        return jsonify({"status": "ignored"}), 200
+
+    history = conversation_store.get(sender_id, [])
+
+    result = sarah_reply(
+        customer_message=text,
+        conversation_history=history,
+        customer_phone=sender_id
+    )
+
+    conversation_store[sender_id] = result.get("updated_history", history)
+
+    reply_text = result.get("reply", "").strip()
+    if reply_text:
+        facebook_send(sender_id, reply_text)
+
+    print(f"Sarah replied on Facebook to {sender_id}")
+    print(f"Urgency: {result.get('urgency')}")
+    print(f"Name: {result.get('name')}")
+    print(f"Service: {result.get('service')}")
+
+    log_lead(
+        phone=sender_id,
+        name=result.get("name"),
+        channel="Facebook",
+        service=result.get("service"),
+        address=result.get("address") or result.get("area") or "",
+        urgency=result.get("urgency"),
+        status="New Lead",
+        last_message=text
+    )
+
+    return jsonify({"status": "ok"}), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
