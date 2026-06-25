@@ -269,9 +269,8 @@ def webchat_message():
     if not history:
         history = [{
             "role": "system",
-            "content": "The customer has already received a greeting message from the widget. Do NOT greet them again. Just answer their question directly and naturally."
+            "content": "IMPORTANT: The customer already received this greeting: 'Hi there! 👋 I'm Sarah from Sparkle Clean USA! 🧹 How can I help you today?' DO NOT say hi, hello, or greet them again in any way. Jump straight into helping them."
         }]
-
     result = sarah_reply(
         customer_message=text,
         conversation_history=history,
