@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from channels.whatsapp import verify_webhook, extract_message, send_reply
 from channels.instagram import extract_message as instagram_extract, send_reply as instagram_send
 from channels.facebook import extract_message as facebook_extract, send_reply as facebook_send
@@ -159,10 +159,10 @@ def instagram_message():
     history = conversation_store.get(sender_id, [])
 
     result = sarah_reply(
-    customer_message=text,
-    conversation_history=history,
-    customer_phone=sender_id,
-    channel="Instagram"
+        customer_message=text,
+        conversation_history=history,
+        customer_phone=sender_id,
+        channel="Instagram"
     )
 
     conversation_store[sender_id] = result.get("updated_history", history)
@@ -219,11 +219,12 @@ def facebook_message():
     history = conversation_store.get(sender_id, [])
 
     result = sarah_reply(
-    customer_message=text,
-    conversation_history=history,
-    customer_phone=sender_id,
-    channel="Facebook"
+        customer_message=text,
+        conversation_history=history,
+        customer_phone=sender_id,
+        channel="Facebook"
     )
+
     conversation_store[sender_id] = result.get("updated_history", history)
 
     reply_text = result.get("reply", "").strip()
@@ -264,12 +265,13 @@ def webchat_message():
 
     history = conversation_store.get(sender_id, [])
 
-# Add greeting context so Sarah doesn't greet again
-if not history:
-    history = [{
-        "role": "system",
-        "content": "The customer has already received a greeting message from the widget. Do NOT greet them again. Just answer their question directly and naturally."
-    }]
+    # Add greeting context so Sarah doesn't greet again
+    if not history:
+        history = [{
+            "role": "system",
+            "content": "The customer has already received a greeting message from the widget. Do NOT greet them again. Just answer their question directly and naturally."
+        }]
+
     result = sarah_reply(
         customer_message=text,
         conversation_history=history,
@@ -297,7 +299,7 @@ if not history:
         "reply": reply_text
     }), 200
 
-from flask import send_from_directory
+# ===== SERVE CHAT WIDGET =====
 
 @app.route("/chat")
 def chat_widget():
