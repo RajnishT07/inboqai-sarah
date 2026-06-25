@@ -211,13 +211,26 @@ def facebook_message():
     if not data:
         return jsonify({"status": "ignored"}), 200
 
-    sender_id, text = facebook_extract(data)
+    # Deduplication
+    message_id = ""
+    try:
+        message_id = data["entry"][0]["messaging"][0]["message"]["mid"]
+    except:
+        pass
 
+    if message_id and message_id in processed_messages:
+        print(f"Duplicate Facebook message ignored: {message_id}")
+        return jsonify({"status": "duplicate"}), 200
+    if message_id:
+        processed_messages.add(message_id)
+
+    sender_id, text = facebook_extract(data)
     if not sender_id or not text:
         return jsonify({"status": "ignored"}), 200
 
     history = conversation_store.get(sender_id, [])
 
+    
     result = sarah_reply(
         customer_message=text,
         conversation_history=history,
