@@ -248,5 +248,48 @@ def facebook_message():
 
     return jsonify({"status": "ok"}), 200
 
+# ===== WEBCHAT WEBHOOK =====
+
+@app.route("/webhook/webchat", methods=["POST"])
+def webchat_message():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"status": "ignored"}), 200
+
+    sender_id = data.get("sender_id")
+    text = data.get("message")
+
+    if not sender_id or not text:
+        return jsonify({"status": "ignored"}), 200
+
+    history = conversation_store.get(sender_id, [])
+
+    result = sarah_reply(
+        customer_message=text,
+        conversation_history=history,
+        customer_phone=sender_id,
+        channel="Webchat"
+    )
+
+    conversation_store[sender_id] = result.get("updated_history", history)
+
+    reply_text = result.get("reply", "").strip()
+
+    log_lead(
+        phone=result.get("phone_number") or sender_id,
+        name=result.get("name"),
+        channel="Webchat",
+        service=result.get("service"),
+        address=result.get("address") or result.get("area") or "",
+        urgency=result.get("urgency"),
+        status="New Lead",
+        last_message=text
+    )
+
+    return jsonify({
+        "status": "ok",
+        "reply": reply_text
+    }), 200
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
