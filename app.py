@@ -291,5 +291,11 @@ def webchat_message():
         "reply": reply_text
     }), 200
 
+from flask import send_from_directory
+
+@app.route("/chat")
+def chat_widget():
+    return send_from_directory('.', 'chat_widget.html')
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
