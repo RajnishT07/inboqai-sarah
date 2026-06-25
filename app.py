@@ -264,6 +264,12 @@ def webchat_message():
 
     history = conversation_store.get(sender_id, [])
 
+# Add greeting context so Sarah doesn't greet again
+if not history:
+    history = [{
+        "role": "system",
+        "content": "The customer has already received a greeting message from the widget. Do NOT greet them again. Just answer their question directly and naturally."
+    }]
     result = sarah_reply(
         customer_message=text,
         conversation_history=history,
