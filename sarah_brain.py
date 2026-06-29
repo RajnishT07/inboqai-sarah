@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from google import genai
 import config
 import supabase_db
-
+import telegram
 # === Initialize Gemini client ===
 gemini_client = genai.Client(api_key=config.GEMINI_API_KEY)
 
@@ -306,6 +306,17 @@ def save_to_supabase(client_id, customer_phone, customer_message, result, channe
         )
 
         print(f"✅ Saved to Supabase — lead_id: {lead_id}")
+
+        # Send Telegram notification for CRITICAL and HIGH leads
+        telegram.send_telegram_notification(
+            lead_name=result.get("name"),
+            phone=customer_phone,
+            channel=channel,
+            urgency=result.get("urgency", "LOW"),
+            message=customer_message,
+            business_name=config.BUSINESS_NAME
+        )
+
         return lead_id
 
     except Exception as e:
