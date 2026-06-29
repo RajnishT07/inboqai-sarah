@@ -5,7 +5,7 @@ from channels.facebook import extract_message as facebook_extract, send_reply as
 from sarah_brain import sarah_reply
 from sheets import log_lead, get_lead
 from calendar_booking import create_booking, parse_appointment_time
-from database import save_message, create_or_update_lead  # ✅ NEW: import Supabase functions
+from supabase_db import save_message, create_or_update_lead  # ✅ NEW: import Supabase functions
 import json
 import config  # ✅ NEW: needed to get SPARKLE_CLEAN_CLIENT_ID
 
