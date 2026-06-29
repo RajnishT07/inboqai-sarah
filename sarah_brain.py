@@ -2,6 +2,7 @@ import json
 import requests
 from google import genai
 import config
+import supabase_db
 
 # === Initialize Gemini client ===
 gemini_client = genai.Client(api_key=config.GEMINI_API_KEY)
@@ -14,7 +15,7 @@ def get_system_prompt(channel="WhatsApp"):
         for service, price in config.BUSINESS_SERVICES.items()
     ])
     areas_text = ", ".join(config.BUSINESS_AREAS)
-    
+
     phone_instruction = "DO NOT ask for phone number — you already have it from WhatsApp." if channel == "WhatsApp" else f"Ask for their phone number naturally during the conversation so the team can confirm the booking. Customer is messaging via {channel}."
 
     return f"""You are Sarah, a friendly and professional AI receptionist for {config.BUSINESS_NAME} in {config.BUSINESS_LOCATION}.
@@ -34,17 +35,31 @@ BUSINESS INFORMATION:
 YOUR JOB:
 You help customers by answering questions, collecting their details, and booking appointments.
 You must collect these 4 things naturally during the conversation:
-You must collect these details naturally during the conversation:
 1. Customer's full name
 2. Service they need (Standard Clean, Deep Clean, or Move-Out Clean)
 3. Their address (must be in our service area)
-4. Preferred date AND time — always ask for a specific date like 
+4. Preferred date AND time — always ask for a specific date like
    "June 27th at 3pm" not just a day name like "Friday" or "tomorrow"
 5. {phone_instruction}
-URGENCY DETECTION:
-At the end of every reply, you must classify the lead.
-If the customer uses words like "urgent", "emergency", "today", "right now", "ASAP" — they are URGENT.
-Otherwise they are CASUAL.
+
+URGENCY DETECTION — 4 LEVELS:
+You must classify every lead into one of these 4 levels:
+
+CRITICAL — needs immediate attention (within 1 hour):
+- Words like: "emergency", "right now", "immediately", "flooding", "broken", "disaster", "urgent emergency"
+- Example: "I have a burst pipe and need cleaning RIGHT NOW"
+
+HIGH — needs same day or next day service:
+- Words like: "today", "tonight", "tomorrow", "ASAP", "as soon as possible", "urgent"
+- Example: "I need someone today if possible"
+
+MEDIUM — has a specific date in mind within a week:
+- Customer mentions a specific date within the next 7 days
+- Example: "Can someone come Thursday?"
+
+LOW — general inquiry or flexible timing:
+- Just asking questions, no urgency mentioned, flexible dates
+- Example: "What are your prices?" or "I need cleaning sometime next month"
 
 RULES YOU MUST NEVER BREAK:
 - Never ask for the customer's name if you already know it from the conversation
@@ -61,13 +76,13 @@ RULES YOU MUST NEVER BREAK:
 - You can ONLY collect information and book new appointments
 - Never confirm something you cannot actually do
 - Never apologize by offering compensation, discounts, or free services
-- When asking for appointment date, always ask for a specific date 
-  like "June 27th at 3pm" — if customer says just "Friday" ask them 
+- When asking for appointment date, always ask for a specific date
+  like "June 27th at 3pm" — if customer says just "Friday" ask them
   "Which date would that be? For example, June 27th at 3pm"
-- After a booking is confirmed, if customer says thanks or goodbye, 
+- After a booking is confirmed, if customer says thanks or goodbye,
   wish them well and remind them of their booking details naturally
 - Never forget a customer's name or booking within the same conversation
-- If customer mentions their appointment is already scheduled, 
+- If customer mentions their appointment is already scheduled,
   confirm it warmly with their details
 
 BOOKING CONFIRMATION RULE:
@@ -101,7 +116,7 @@ RESPONSE FORMAT:
 You must always reply in this exact JSON format and nothing else:
 {{
   "reply": "your message to the customer here",
-  "urgency": "URGENT or CASUAL",
+  "urgency": "CRITICAL or HIGH or MEDIUM or LOW",
   "name": "customer name or null if not known yet",
   "service": "service name or null if not known yet",
   "area": "city name only (Dallas, Plano, Frisco, or McKinney) or null if not known yet",
@@ -109,31 +124,31 @@ You must always reply in this exact JSON format and nothing else:
   "appointment_time": "their preferred date and time as text or null if not known yet",
   "ready_to_book": true or false
 }}"""
+
+
 # === Ask Groq via direct HTTP request ===
-# We call Groq's REST API directly using requests
-# This avoids the groq package and all its httpx dependency issues
 def ask_groq(conversation_history):
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"
-        
+
         headers = {
             "Authorization": f"Bearer {config.GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
-        
+
         payload = {
-    "model": config.GROQ_MODEL,
-    "messages": conversation_history,
-    "temperature": 0.7,
-    "max_tokens": 500,
-    "response_format": {"type": "json_object"}
-}
-        
+            "model": config.GROQ_MODEL,
+            "messages": conversation_history,
+            "temperature": 0.7,
+            "max_tokens": 500,
+            "response_format": {"type": "json_object"}
+        }
+
         response = requests.post(url, headers=headers, json=payload, timeout=30)
-        
+
         print(f"Groq status code: {response.status_code}")
         print(f"Groq response: {response.text[:200]}")
-        
+
         if response.status_code == 200:
             content = response.json()["choices"][0]["message"]["content"]
             print(f"Groq content: {content[:100]}")
@@ -141,10 +156,11 @@ def ask_groq(conversation_history):
         else:
             print(f"Groq HTTP error: {response.status_code} - {response.text}")
             return None
-            
+
     except Exception as e:
         print(f"Groq failed: {e}")
         return None
+
 
 # === Ask Gemini (Fallback) ===
 def ask_gemini(conversation_history):
@@ -176,18 +192,54 @@ def parse_sarah_reply(raw_reply):
             raw_reply = raw_reply.split("```json")[1].split("```")[0].strip()
         elif "```" in raw_reply:
             raw_reply = raw_reply.split("```")[1].split("```")[0].strip()
-        
+
         return json.loads(raw_reply)
     except Exception as e:
         print(f"JSON parse failed: {e}")
         return {
             "reply": "Hi! I'm Sarah from Sparkle Clean USA. How can I help you today?",
-            "urgency": "CASUAL",
+            "urgency": "LOW",
             "name": None,
             "service": None,
             "area": None,
             "ready_to_book": False
         }
+
+
+# === Save conversation to Supabase ===
+def save_to_supabase(client_id, customer_phone, customer_message, result, channel):
+    try:
+        # Create or update lead
+        lead_id = supabase_db.create_or_update_lead(
+            client_id=client_id,
+            phone=customer_phone,
+            name=result.get("name"),
+            channel=channel,
+            urgency=result.get("urgency", "LOW").lower()
+        )
+
+        # Save customer message
+        supabase_db.save_message(
+            client_id=client_id,
+            lead_id=lead_id,
+            role="user",
+            message=customer_message
+        )
+
+        # Save Sarah's reply
+        supabase_db.save_message(
+            client_id=client_id,
+            lead_id=lead_id,
+            role="assistant",
+            message=result.get("reply", "")
+        )
+
+        print(f"✅ Saved to Supabase — lead_id: {lead_id}")
+        return lead_id
+
+    except Exception as e:
+        print(f"❌ Supabase save failed: {e}")
+        return None
 
 
 # === Main Sarah Function ===
@@ -210,7 +262,7 @@ def sarah_reply(customer_message, conversation_history, customer_phone, channel=
     if raw_reply is None:
         return {
             "reply": "Hi! I'm Sarah from Sparkle Clean USA. How can I help you today?",
-            "urgency": "CASUAL",
+            "urgency": "LOW",
             "name": None,
             "service": None,
             "area": None,
@@ -220,6 +272,11 @@ def sarah_reply(customer_message, conversation_history, customer_phone, channel=
 
     # Parse reply
     result = parse_sarah_reply(raw_reply)
+
+    # Save to Supabase
+    client_id = config.SPARKLE_CLEAN_CLIENT_ID
+    if client_id:
+        save_to_supabase(client_id, customer_phone, customer_message, result, channel)
 
     # Update history
     conversation_history.append({"role": "user", "content": customer_message})
