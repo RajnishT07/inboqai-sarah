@@ -5,12 +5,18 @@ from channels.facebook import extract_message as facebook_extract, send_reply as
 from sarah_brain import sarah_reply
 from sheets import log_lead, get_lead
 from calendar_booking import create_booking, parse_appointment_time
+from database import save_message, create_or_update_lead  # ✅ NEW: import Supabase functions
 import json
+import config  # ✅ NEW: needed to get SPARKLE_CLEAN_CLIENT_ID
 
 app = Flask(__name__)
 
 conversation_store = {}
 processed_messages = set()
+
+# ✅ NEW: Sparkle Clean's UUID from Supabase clients table
+# This tells Supabase every lead/message belongs to Sparkle Clean
+SPARKLE_CLIENT_ID = "1c08d4eb-5169-494c-88fc-41d919f6aa1e"
 
 @app.route("/", methods=["GET"])
 def home():
@@ -59,7 +65,6 @@ def whatsapp_message():
             if known_info:
                 context = "RETURNING CUSTOMER — you already know: " + ", ".join(known_info)
                 history = [{"role": "system", "content": context}]
-                print(f"Loaded existing customer: {existing_lead.get('name')}")
 
     result = sarah_reply(
         customer_message=text,
@@ -72,15 +77,8 @@ def whatsapp_message():
     reply_text = result.get("reply", "").strip()
     if reply_text:
         send_reply(phone, reply_text)
-    else:
-        print(f"Empty reply detected — skipping send")
 
     print(f"Sarah replied to {phone}")
-    print(f"Urgency: {result.get('urgency')}")
-    print(f"Name: {result.get('name')}")
-    print(f"Service: {result.get('service')}")
-    print(f"Area: {result.get('area')}")
-    print(f"Ready to book: {result.get('ready_to_book')}")
 
     booking_status = "New Lead"
     full_address = result.get("address") or result.get("area") or ""
@@ -97,7 +95,6 @@ def whatsapp_message():
             )
             if success:
                 booking_status = "Booked"
-                print(f"Booking created for {phone}")
                 conversation_history = result.get("updated_history", history)
                 conversation_history.append({
                     "role": "system",
@@ -106,11 +103,10 @@ def whatsapp_message():
                 conversation_store[phone] = conversation_history
             else:
                 booking_status = "Booking Failed"
-                print(f"Booking failed: {message}")
                 conversation_history = result.get("updated_history", history)
                 conversation_history.append({
                     "role": "system",
-                    "content": f"BOOKING FAILED: {message}. Tell the customer that time slot is unavailable and ask them to pick a different date and time. Do NOT say booking confirmed."
+                    "content": f"BOOKING FAILED: {message}. Tell the customer that time slot is unavailable and ask them to pick a different date and time."
                 })
                 conversation_store[phone] = conversation_history
         else:
@@ -118,6 +114,38 @@ def whatsapp_message():
     elif result.get("ready_to_book"):
         booking_status = "Ready to Book"
 
+    # ✅ NEW: Save lead to Supabase (replaces Google Sheets log_lead for lead tracking)
+    # session_id = phone number — this groups all WhatsApp messages from this person together
+    lead_id = create_or_update_lead(
+        client_id=SPARKLE_CLIENT_ID,
+        phone=phone,
+        name=result.get("name"),
+        channel="whatsapp",
+        urgency=result.get("urgency", "low")
+    )
+
+    # ✅ NEW: Save the customer's message to Supabase conversations table
+    save_message(
+        client_id=SPARKLE_CLIENT_ID,
+        lead_id=lead_id,
+        role="user",
+        message=text,
+        session_id=f"whatsapp_{phone}",  # ✅ unique session per WhatsApp number
+        channel="whatsapp"
+    )
+
+    # ✅ NEW: Save Sarah's reply to Supabase conversations table
+    if reply_text:
+        save_message(
+            client_id=SPARKLE_CLIENT_ID,
+            lead_id=lead_id,
+            role="assistant",
+            message=reply_text,
+            session_id=f"whatsapp_{phone}",  # ✅ same session_id so they group together
+            channel="whatsapp"
+        )
+
+    # Keeping old Google Sheets log as backup for now
     log_lead(
         phone=phone,
         name=result.get("name"),
@@ -138,12 +166,9 @@ def instagram_verify():
     mode = request.args.get('hub.mode')
     token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
-
     if mode == 'subscribe' and token == 'inboqai2024':
-        print("Instagram webhook verified!")
         return challenge, 200
-    else:
-        return 'Forbidden', 403
+    return 'Forbidden', 403
 
 @app.route("/webhook/instagram", methods=["POST"])
 def instagram_message():
@@ -152,7 +177,6 @@ def instagram_message():
         return jsonify({"status": "ignored"}), 200
 
     sender_id, text = instagram_extract(data)
-
     if not sender_id or not text:
         return jsonify({"status": "ignored"}), 200
 
@@ -170,13 +194,35 @@ def instagram_message():
     reply_text = result.get("reply", "").strip()
     if reply_text:
         instagram_send(sender_id, reply_text)
-    else:
-        print(f"Empty Instagram reply — skipping send")
 
-    print(f"Sarah replied on Instagram to {sender_id}")
-    print(f"Urgency: {result.get('urgency')}")
-    print(f"Name: {result.get('name')}")
-    print(f"Service: {result.get('service')}")
+    # ✅ NEW: Save lead + messages to Supabase
+    # session_id = instagram_{sender_id} — groups this Instagram user's messages
+    lead_id = create_or_update_lead(
+        client_id=SPARKLE_CLIENT_ID,
+        phone=sender_id,
+        name=result.get("name"),
+        channel="instagram",
+        urgency=result.get("urgency", "low")
+    )
+
+    save_message(
+        client_id=SPARKLE_CLIENT_ID,
+        lead_id=lead_id,
+        role="user",
+        message=text,
+        session_id=f"instagram_{sender_id}",
+        channel="instagram"
+    )
+
+    if reply_text:
+        save_message(
+            client_id=SPARKLE_CLIENT_ID,
+            lead_id=lead_id,
+            role="assistant",
+            message=reply_text,
+            session_id=f"instagram_{sender_id}",
+            channel="instagram"
+        )
 
     log_lead(
         phone=sender_id,
@@ -198,12 +244,9 @@ def facebook_verify():
     mode = request.args.get('hub.mode')
     token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
-
     if mode == 'subscribe' and token == 'inboqai2024':
-        print("Facebook webhook verified!")
         return challenge, 200
-    else:
-        return 'Forbidden', 403
+    return 'Forbidden', 403
 
 @app.route("/webhook/facebook", methods=["POST"])
 def facebook_message():
@@ -211,7 +254,6 @@ def facebook_message():
     if not data:
         return jsonify({"status": "ignored"}), 200
 
-    # Deduplication
     message_id = ""
     try:
         message_id = data["entry"][0]["messaging"][0]["message"]["mid"]
@@ -219,7 +261,6 @@ def facebook_message():
         pass
 
     if message_id and message_id in processed_messages:
-        print(f"Duplicate Facebook message ignored: {message_id}")
         return jsonify({"status": "duplicate"}), 200
     if message_id:
         processed_messages.add(message_id)
@@ -230,7 +271,6 @@ def facebook_message():
 
     history = conversation_store.get(sender_id, [])
 
-    
     result = sarah_reply(
         customer_message=text,
         conversation_history=history,
@@ -244,10 +284,34 @@ def facebook_message():
     if reply_text:
         facebook_send(sender_id, reply_text)
 
-    print(f"Sarah replied on Facebook to {sender_id}")
-    print(f"Urgency: {result.get('urgency')}")
-    print(f"Name: {result.get('name')}")
-    print(f"Service: {result.get('service')}")
+    # ✅ NEW: Save lead + messages to Supabase
+    # session_id = facebook_{sender_id} — groups this Facebook user's messages
+    lead_id = create_or_update_lead(
+        client_id=SPARKLE_CLIENT_ID,
+        phone=sender_id,
+        name=result.get("name"),
+        channel="facebook",
+        urgency=result.get("urgency", "low")
+    )
+
+    save_message(
+        client_id=SPARKLE_CLIENT_ID,
+        lead_id=lead_id,
+        role="user",
+        message=text,
+        session_id=f"facebook_{sender_id}",
+        channel="facebook"
+    )
+
+    if reply_text:
+        save_message(
+            client_id=SPARKLE_CLIENT_ID,
+            lead_id=lead_id,
+            role="assistant",
+            message=reply_text,
+            session_id=f"facebook_{sender_id}",
+            channel="facebook"
+        )
 
     log_lead(
         phone=sender_id,
@@ -278,12 +342,12 @@ def webchat_message():
 
     history = conversation_store.get(sender_id, [])
 
-    # Add greeting context so Sarah doesn't greet again
     if not history:
         history = [{
             "role": "system",
-            "content": "IMPORTANT: The customer already received this greeting: 'Hi there! 👋 I'm Sarah from Sparkle Clean USA! 🧹 How can I help you today?' DO NOT say hi, hello, or greet them again in any way. Jump straight into helping them."
+            "content": "IMPORTANT: The customer already received this greeting: 'Hi there! 👋 I'm Sarah from Sparkle Clean USA! 🧹 How can I help you today?' DO NOT say hi, hello, or greet them again. Jump straight into helping them."
         }]
+
     result = sarah_reply(
         customer_message=text,
         conversation_history=history,
@@ -294,6 +358,35 @@ def webchat_message():
     conversation_store[sender_id] = result.get("updated_history", history)
 
     reply_text = result.get("reply", "").strip()
+
+    # ✅ NEW: Save lead + messages to Supabase
+    # session_id = webchat_{sender_id} — sender_id is already a random ID from the widget
+    lead_id = create_or_update_lead(
+        client_id=SPARKLE_CLIENT_ID,
+        phone=sender_id,
+        name=result.get("name"),
+        channel="webchat",
+        urgency=result.get("urgency", "low")
+    )
+
+    save_message(
+        client_id=SPARKLE_CLIENT_ID,
+        lead_id=lead_id,
+        role="user",
+        message=text,
+        session_id=f"webchat_{sender_id}",
+        channel="webchat"
+    )
+
+    if reply_text:
+        save_message(
+            client_id=SPARKLE_CLIENT_ID,
+            lead_id=lead_id,
+            role="assistant",
+            message=reply_text,
+            session_id=f"webchat_{sender_id}",
+            channel="webchat"
+        )
 
     log_lead(
         phone=result.get("phone_number") or sender_id,
