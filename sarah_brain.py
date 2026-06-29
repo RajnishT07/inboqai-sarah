@@ -2,7 +2,6 @@ import json
 import requests
 from google import genai
 import config
-import supabase_db
 
 # === Initialize Gemini client ===
 gemini_client = genai.Client(api_key=config.GEMINI_API_KEY)
@@ -206,42 +205,6 @@ def parse_sarah_reply(raw_reply):
         }
 
 
-# === Save conversation to Supabase ===
-def save_to_supabase(client_id, customer_phone, customer_message, result, channel):
-    try:
-        # Create or update lead
-        lead_id = supabase_db.create_or_update_lead(
-            client_id=client_id,
-            phone=customer_phone,
-            name=result.get("name"),
-            channel=channel,
-            urgency=result.get("urgency", "LOW").lower()
-        )
-
-        # Save customer message
-        supabase_db.save_message(
-            client_id=client_id,
-            lead_id=lead_id,
-            role="user",
-            message=customer_message
-        )
-
-        # Save Sarah's reply
-        supabase_db.save_message(
-            client_id=client_id,
-            lead_id=lead_id,
-            role="assistant",
-            message=result.get("reply", "")
-        )
-
-        print(f"✅ Saved to Supabase — lead_id: {lead_id}")
-        return lead_id
-
-    except Exception as e:
-        print(f"❌ Supabase save failed: {e}")
-        return None
-
-
 # === Main Sarah Function ===
 def sarah_reply(customer_message, conversation_history, customer_phone, channel="WhatsApp"):
     # Build full conversation for AI
@@ -272,11 +235,6 @@ def sarah_reply(customer_message, conversation_history, customer_phone, channel=
 
     # Parse reply
     result = parse_sarah_reply(raw_reply)
-
-    # Save to Supabase
-    client_id = config.SPARKLE_CLEAN_CLIENT_ID
-    if client_id:
-        save_to_supabase(client_id, customer_phone, customer_message, result, channel)
 
     # Update history
     conversation_history.append({"role": "user", "content": customer_message})
