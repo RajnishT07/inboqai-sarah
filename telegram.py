@@ -1,22 +1,24 @@
 import requests
 import os
 
+# === Telegram credentials from Render environment variables ===
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 
 def send_telegram_notification(lead_name, phone, channel, urgency, message, business_name="Sparkle Clean USA"):
     """
-    Sends a notification to your Telegram when a CRITICAL or HIGH urgency lead comes in.
-    Only fires for CRITICAL and HIGH — ignores MEDIUM and LOW.
+    Sends a Telegram notification when a CRITICAL or HIGH urgency lead comes in.
+    MEDIUM and LOW leads are ignored — we don't want notification spam.
     """
+
     urgency_upper = urgency.upper()
 
-    # Only notify for CRITICAL and HIGH
+    # ✅ Only notify for urgent leads — ignore MEDIUM and LOW
     if urgency_upper not in ["CRITICAL", "HIGH"]:
         return
 
-    # Urgency emoji
+    # 🚨 Set emoji and label based on urgency level
     if urgency_upper == "CRITICAL":
         urgency_emoji = "🚨"
         urgency_label = "CRITICAL — CALL NOW"
@@ -24,7 +26,7 @@ def send_telegram_notification(lead_name, phone, channel, urgency, message, busi
         urgency_emoji = "🔥"
         urgency_label = "HIGH PRIORITY"
 
-    # Channel emoji
+    # 📣 Map channel name to a friendly label with emoji
     channel_emojis = {
         "whatsapp": "📱 WhatsApp",
         "facebook": "👥 Facebook",
@@ -33,25 +35,27 @@ def send_telegram_notification(lead_name, phone, channel, urgency, message, busi
     }
     channel_label = channel_emojis.get(channel.lower(), f"💬 {channel}")
 
-    # Build message
-    notification = f"""{urgency_emoji} *{urgency_label}*
+    # 📝 Build the notification message
+    # Using HTML formatting — more reliable than Markdown for special characters
+    notification = f"""{urgency_emoji} <b>{urgency_label}</b>
 
-🏢 *Business:* {business_name}
-👤 *Name:* {lead_name or "Unknown"}
-📞 *Phone:* {phone}
-📣 *Channel:* {channel_label}
+🏢 <b>Business:</b> {business_name}
+👤 <b>Name:</b> {lead_name or "Unknown"}
+📞 <b>Phone:</b> {phone}
+📣 <b>Channel:</b> {channel_label}
 
-💬 *Message:*
-_{message}_
+💬 <b>Message:</b>
+{message}
 
-👉 [Open Dashboard](https://dashboard.alwayzon.agency)"""
+👉 <a href="https://dashboard.alwayzon.agency">Open Dashboard</a>"""
 
     try:
+        # 📤 Send the message via Telegram Bot API
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
             "text": notification,
-            "parse_mode": "Markdown"
+            "parse_mode": "HTML"  # HTML is safer than Markdown for user messages
         }
         response = requests.post(url, json=payload, timeout=10)
 
