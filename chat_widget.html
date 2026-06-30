@@ -216,8 +216,13 @@
 </div>
 
 <script>
-    // Generate unique session ID for this visitor
-    const sessionId = 'web_' + Math.random().toString(36).substr(2, 9);
+    // Reuse existing sessionId from localStorage if it exists, otherwise create a new one
+let sessionId = localStorage.getItem('sarah_session_id');
+if (!sessionId) {
+    sessionId = 'web_' + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem('sarah_session_id', sessionId);
+}
+    
     let chatOpened = false;
 
     const SARAH_URL = 'https://inboqai-sarah.onrender.com/webhook/webchat';
