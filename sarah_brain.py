@@ -9,10 +9,12 @@ import telegram
 # === Initialize Gemini client ===
 gemini_client = genai.Client(api_key=config.GEMINI_API_KEY)
 
+# === Urgency ranking — higher number = more urgent ===
+URGENCY_RANK = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+
 
 # === Get time-based greeting ===
 def get_time_greeting():
-    # Uses UTC — Dallas TX is UTC-5 (CDT) or UTC-6 (CST)
     hour = (datetime.now(timezone.utc).hour - 5) % 24
     if 5 <= hour < 12:
         return "Good morning"
@@ -26,60 +28,48 @@ def get_time_greeting():
 
 # === Build returning customer context ===
 def get_returning_customer_context(customer_phone, client_id):
-    """
-    Checks Supabase if this phone number has contacted us before.
-    Returns a context string that gets injected into Sarah's prompt.
-    If new customer, returns empty string.
-    """
     try:
         existing_lead = supabase_db.get_lead_by_phone(client_id, customer_phone)
         if not existing_lead:
-            return ""  # New customer, no context needed
+            return ""
 
         name = existing_lead.get("name")
         service = existing_lead.get("service")
         status = existing_lead.get("status", "").lower()
         greeting = get_time_greeting()
 
-        # Build context based on their last booking status
         if status == "completed":
             return f"""
 RETURNING CUSTOMER DETECTED:
-- This customer has contacted us before
-- Their name is: {name or "unknown"}
-- Their last service was: {service or "a cleaning service"}
+- Name: {name or "unknown"}
+- Last service: {service or "a cleaning service"}
 - Status: COMPLETED
 
 YOUR FIRST MESSAGE MUST:
 - Start with "{greeting} {name or "there"}! 😊 Welcome back to {config.BUSINESS_NAME}!"
 - Ask how their previous {service or "service"} went
 - Then naturally ask how you can help them today
-- Keep it warm and personal — they are a valued returning customer
 """
         elif status == "booked":
             return f"""
 RETURNING CUSTOMER DETECTED:
-- This customer has an upcoming booking
-- Their name is: {name or "unknown"}
-- Their booked service: {service or "a cleaning service"}
+- Name: {name or "unknown"}
+- Booked service: {service or "a cleaning service"}
 - Status: BOOKED (upcoming)
 
 YOUR FIRST MESSAGE MUST:
 - Start with "{greeting} {name or "there"}! 😊 Great to hear from you!"
 - Mention they have an upcoming booking
 - Ask if they need to make any changes or need anything else
-- Keep it warm and personal
 """
         else:
             return f"""
 RETURNING CUSTOMER DETECTED:
-- This customer has contacted us before
-- Their name is: {name or "unknown"}
+- Name: {name or "unknown"}
 
 YOUR FIRST MESSAGE MUST:
 - Start with "{greeting} {name or "there"}! 😊 Welcome back!"
 - Ask how you can help them today
-- Keep it warm and personal
 """
     except Exception as e:
         print(f"Returning customer check failed: {e}")
@@ -95,9 +85,9 @@ def get_system_prompt(channel="WhatsApp", returning_customer_context=""):
     areas_text = ", ".join(config.BUSINESS_AREAS)
 
     phone_instruction = (
-        "DO NOT ask for phone number — you already have it from WhatsApp."
+        "Phone number is already known from WhatsApp — do not ask for it."
         if channel == "WhatsApp"
-        else f"Ask for their phone number naturally during the conversation so the team can confirm the booking. Customer is messaging via {channel}."
+        else f"You MUST ask for their phone number — this is a REQUIRED field, just like name and address. Customer is messaging via {channel}, so we do not have their phone automatically. Do not confirm a booking until you have it."
     )
 
     return f"""You are Sarah, a warm and professional AI receptionist for {config.BUSINESS_NAME} in {config.BUSINESS_LOCATION}.
@@ -109,8 +99,7 @@ PERSONALITY — NEVER BREAK THESE:
 - Sound like a real human — warm, friendly, enthusiastic
 - Never sound robotic or scripted
 - Be concise — 2 to 4 sentences max per reply
-- Make every customer feel valued and heard
-- Match the customer's energy — if they're casual, be casual. If they're stressed, be calm and reassuring.
+- Match the customer's energy — if they're stressed, be calm and reassuring
 
 BUSINESS INFORMATION:
 - Business Hours: {config.BUSINESS_HOURS}
@@ -120,57 +109,62 @@ BUSINESS INFORMATION:
 
 YOUR JOB:
 Help customers by answering questions, collecting their details, and booking appointments.
-Collect these 4 things naturally — never like a form, always like a conversation:
+You must collect these REQUIRED fields naturally — never like a form, always like a conversation:
 1. Customer's full name
 2. Service needed (Standard Clean, Deep Clean, or Move-Out Clean)
 3. Full address (must be in our service area)
 4. Preferred date AND time (always ask for a specific date like "July 3rd at 2pm")
 5. {phone_instruction}
 
+ADDITIONAL DETAILS — ask these naturally over the conversation, one at a time, AFTER the required fields above (do not interrogate, weave them in naturally):
+6. Property type (house, apartment, condo, office)
+7. Approximate size (number of bedrooms/bathrooms, or square footage if they know it)
+8. Service frequency — one-time clean, or recurring (weekly/biweekly/monthly)
+9. Access constraints — will someone be home, is there a key/code/doorman, parking instructions
+10. Pets in the home — helps the cleaning team prepare
+
+These additional details are NOT required to confirm a booking, but try to naturally collect at least 2-3 of them during the conversation. If the customer is clearly in a hurry or this is a CRITICAL/HIGH urgency situation, SKIP these and focus only on the 5 required fields — don't slow down an urgent customer with extra questions.
+
 CONVERSATION STYLE:
 - Never ask multiple questions at once — one question per message
 - If customer seems stressed or in a hurry, acknowledge it first before asking questions
-- Use their name naturally once you know it — not in every single message
-- If customer asks for price, give it immediately — don't make them wait
+- Use their name naturally once you know it — not in every message
+- If customer asks for price, give it immediately
 - Transition smoothly between topics — never feel like an interrogation
 
 URGENCY DETECTION — 4 LEVELS:
-Classify every lead into one of these 4 levels:
+Classify the urgency based on the ENTIRE conversation so far, not just the latest message. If the customer expressed urgency earlier in the conversation, keep that urgency level even if later messages are calmer (e.g. while giving address/booking details).
 
 CRITICAL — needs immediate attention (within 1 hour):
 - Words: "emergency", "right now", "immediately", "flooding", "disaster"
-- Example: "I need cleaning RIGHT NOW, guests arriving in an hour"
 
 HIGH — same day or next day:
 - Words: "today", "tonight", "tomorrow", "ASAP", "urgent"
-- Example: "Can someone come today?"
 
 MEDIUM — specific date within a week:
 - Customer mentions a date within 7 days
-- Example: "Can someone come Thursday?"
 
 LOW — general inquiry or flexible:
-- Browsing, asking prices, no urgency
-- Example: "What services do you offer?"
+- Browsing, asking prices, no urgency mentioned anywhere in the conversation
 
 STRICT RULES — NEVER BREAK:
 - Never ask for name if you already know it
 - Never invent services or prices not listed above
-- Never confirm a booking without all 4 details
+- Never confirm a booking without all 5 REQUIRED fields (name, service, address, date/time, phone)
 - Never mention you are an AI unless directly asked
 - Never offer discounts, refunds, or compensation
-- Never promise anything you cannot deliver
 - If outside service area: "We don't cover that area yet but we're expanding soon! 😊"
 - For cancellations/complaints: "I'll have our team reach out within 2 hours. Can I get your name and best contact time?"
-- For date like "Friday": ask "Which date would that be? For example, July 4th at 2pm 🗓"
+- For vague dates like "Friday": ask "Which date would that be? For example, July 4th at 2pm 🗓"
 
 BOOKING CONFIRMATION:
-Once you have ALL 4 details, confirm like this:
+Once you have ALL 5 REQUIRED details (name, service, address, date/time, phone), confirm like this:
 "Perfect! Here's a summary of your booking:
 
 🧹 *Service:* [service] — [price]
 📍 *Address:* [full address]
 🗓 *Date & Time:* [date] at [time]
+📞 *Phone:* [phone]
 
 Shall I go ahead and lock this in for you? ✅"
 
@@ -191,8 +185,15 @@ RESPONSE FORMAT — always reply in this exact JSON, nothing else:
   "service": "service name or null",
   "area": "city name only or null",
   "address": "full street address or null",
+  "phone_number": "phone number or null (only for non-WhatsApp channels)",
   "appointment_time": "date and time as text or null",
-  "ready_to_book": true or false
+  "property_type": "house/apartment/condo/office or null",
+  "property_size": "e.g. 3 bed 2 bath or null",
+  "frequency": "one-time/weekly/biweekly/monthly or null",
+  "access_notes": "access constraints or null",
+  "pets": "pet info or null",
+  "ready_to_book": true or false,
+  "booking_confirmed": true or false
 }}"""
 
 
@@ -200,25 +201,20 @@ RESPONSE FORMAT — always reply in this exact JSON, nothing else:
 def ask_groq(conversation_history):
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"
-
         headers = {
             "Authorization": f"Bearer {config.GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
-
         payload = {
             "model": config.GROQ_MODEL,
             "messages": conversation_history,
             "temperature": 0.7,
-            "max_tokens": 600,
+            "max_tokens": 700,
             "response_format": {"type": "json_object"}
         }
-
         response = requests.post(url, headers=headers, json=payload, timeout=30)
-
         print(f"Groq status code: {response.status_code}")
         print(f"Groq response: {response.text[:200]}")
-
         if response.status_code == 200:
             content = response.json()["choices"][0]["message"]["content"]
             print(f"Groq content: {content[:100]}")
@@ -226,7 +222,6 @@ def ask_groq(conversation_history):
         else:
             print(f"Groq HTTP error: {response.status_code} - {response.text}")
             return None
-
     except Exception as e:
         print(f"Groq failed: {e}")
         return None
@@ -243,7 +238,6 @@ def ask_gemini(conversation_history):
                 prompt += f"Customer: {msg['content']}\n"
             elif msg["role"] == "assistant":
                 prompt += f"Sarah: {msg['content']}\n"
-
         response = gemini_client.models.generate_content(
             model=config.GEMINI_MODEL,
             contents=prompt
@@ -262,7 +256,6 @@ def parse_sarah_reply(raw_reply):
             raw_reply = raw_reply.split("```json")[1].split("```")[0].strip()
         elif "```" in raw_reply:
             raw_reply = raw_reply.split("```")[1].split("```")[0].strip()
-
         return json.loads(raw_reply)
     except Exception as e:
         print(f"JSON parse failed: {e}")
@@ -272,13 +265,39 @@ def parse_sarah_reply(raw_reply):
             "name": None,
             "service": None,
             "area": None,
-            "ready_to_book": False
+            "ready_to_book": False,
+            "booking_confirmed": False
         }
 
 
+# === Apply sticky urgency — never let urgency downgrade within a conversation ===
+def apply_sticky_urgency(new_urgency, conversation_history):
+    """
+    Looks back through conversation_history for any previous urgency level
+    Sarah assigned in this conversation, and ensures the urgency never decreases.
+    """
+    highest_seen = URGENCY_RANK.get(new_urgency.upper(), 0)
+
+    for msg in conversation_history:
+        if msg.get("role") == "assistant":
+            try:
+                parsed = json.loads(msg["content"])
+                prev_urgency = parsed.get("urgency", "LOW").upper()
+                rank = URGENCY_RANK.get(prev_urgency, 0)
+                if rank > highest_seen:
+                    highest_seen = rank
+            except Exception:
+                continue
+
+    # Convert rank back to label
+    for label, rank in URGENCY_RANK.items():
+        if rank == highest_seen:
+            return label
+    return new_urgency.upper()
+
+
 # === Send Telegram notification ===
-# NOTE: Supabase saving (leads + conversations) now happens in app.py
-# with proper channel-specific session_ids — this function ONLY handles Telegram.
+# NOTE: Supabase saving (leads + conversations) happens in app.py
 def notify_telegram(client_id, customer_phone, customer_message, result, channel):
     try:
         telegram.send_telegram_notification(
@@ -296,32 +315,26 @@ def notify_telegram(client_id, customer_phone, customer_message, result, channel
 # === Main Sarah Function ===
 def sarah_reply(customer_message, conversation_history, customer_phone, channel="WhatsApp"):
 
-    # Check if returning customer
     client_id = config.SPARKLE_CLEAN_CLIENT_ID
     returning_context = ""
     if client_id and not conversation_history:
-        # Only check on FIRST message of conversation
         returning_context = get_returning_customer_context(customer_phone, client_id)
         if returning_context:
             print(f"🔄 Returning customer detected: {customer_phone}")
         else:
             print(f"👋 New customer: {customer_phone}")
 
-    # Build full conversation for AI
     messages = [{"role": "system", "content": get_system_prompt(channel, returning_context)}]
     for msg in conversation_history:
         messages.append(msg)
     messages.append({"role": "user", "content": customer_message})
 
-    # Try Groq first
     raw_reply = ask_groq(messages)
 
-    # Fallback to Gemini
     if raw_reply is None:
         print("Switching to Gemini fallback...")
         raw_reply = ask_gemini(messages)
 
-    # If both fail
     if raw_reply is None:
         return {
             "reply": "Hi! I'm Sarah from Sparkle Clean USA. How can I help you today? 😊",
@@ -330,17 +343,20 @@ def sarah_reply(customer_message, conversation_history, customer_phone, channel=
             "service": None,
             "area": None,
             "ready_to_book": False,
+            "booking_confirmed": False,
             "updated_history": conversation_history
         }
 
-    # Parse reply
     result = parse_sarah_reply(raw_reply)
 
-    # Send Telegram notification only — Supabase saving happens in app.py
+    # ✅ Apply sticky urgency — never downgrade within the same conversation
+    sticky_urgency = apply_sticky_urgency(result.get("urgency", "LOW"), conversation_history)
+    result["urgency"] = sticky_urgency
+
+    # Send Telegram notification — Supabase saving happens in app.py
     if client_id:
         notify_telegram(client_id, customer_phone, customer_message, result, channel)
 
-    # Update conversation history
     conversation_history.append({"role": "user", "content": customer_message})
     conversation_history.append({"role": "assistant", "content": raw_reply})
     result["updated_history"] = conversation_history
