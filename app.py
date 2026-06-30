@@ -5,17 +5,15 @@ from channels.facebook import extract_message as facebook_extract, send_reply as
 from sarah_brain import sarah_reply
 from sheets import log_lead, get_lead
 from calendar_booking import create_booking, parse_appointment_time
-from supabase_db import save_message, create_or_update_lead  # ✅ NEW: import Supabase functions
+from supabase_db import save_message, create_or_update_lead, update_lead_status  # ✅ added update_lead_status
 import json
-import config  # ✅ NEW: needed to get SPARKLE_CLEAN_CLIENT_ID
+import config
 
 app = Flask(__name__)
 
 conversation_store = {}
 processed_messages = set()
 
-# ✅ NEW: Sparkle Clean's UUID from Supabase clients table
-# This tells Supabase every lead/message belongs to Sparkle Clean
 SPARKLE_CLIENT_ID = "1c08d4eb-5169-494c-88fc-41d919f6aa1e"
 
 @app.route("/", methods=["GET"])
@@ -114,8 +112,7 @@ def whatsapp_message():
     elif result.get("ready_to_book"):
         booking_status = "Ready to Book"
 
-    # ✅ NEW: Save lead to Supabase (replaces Google Sheets log_lead for lead tracking)
-    # session_id = phone number — this groups all WhatsApp messages from this person together
+    # Save lead to Supabase
     lead_id = create_or_update_lead(
         client_id=SPARKLE_CLIENT_ID,
         phone=phone,
@@ -124,28 +121,30 @@ def whatsapp_message():
         urgency=result.get("urgency", "low")
     )
 
-    # ✅ NEW: Save the customer's message to Supabase conversations table
+    # ✅ Auto-update status to "booked" when Sarah confirms the booking
+    if result.get("booking_confirmed"):
+        update_lead_status(lead_id, "booked")
+
+    # Save the customer's message to Supabase
     save_message(
         client_id=SPARKLE_CLIENT_ID,
         lead_id=lead_id,
         role="user",
         message=text,
-        session_id=f"whatsapp_{phone}",  # ✅ unique session per WhatsApp number
+        session_id=f"whatsapp_{phone}",
         channel="whatsapp"
     )
 
-    # ✅ NEW: Save Sarah's reply to Supabase conversations table
     if reply_text:
         save_message(
             client_id=SPARKLE_CLIENT_ID,
             lead_id=lead_id,
             role="assistant",
             message=reply_text,
-            session_id=f"whatsapp_{phone}",  # ✅ same session_id so they group together
+            session_id=f"whatsapp_{phone}",
             channel="whatsapp"
         )
 
-    # Keeping old Google Sheets log as backup for now
     log_lead(
         phone=phone,
         name=result.get("name"),
@@ -195,8 +194,6 @@ def instagram_message():
     if reply_text:
         instagram_send(sender_id, reply_text)
 
-    # ✅ NEW: Save lead + messages to Supabase
-    # session_id = instagram_{sender_id} — groups this Instagram user's messages
     lead_id = create_or_update_lead(
         client_id=SPARKLE_CLIENT_ID,
         phone=sender_id,
@@ -204,6 +201,10 @@ def instagram_message():
         channel="instagram",
         urgency=result.get("urgency", "low")
     )
+
+    # ✅ Auto-update status to "booked" when Sarah confirms the booking
+    if result.get("booking_confirmed"):
+        update_lead_status(lead_id, "booked")
 
     save_message(
         client_id=SPARKLE_CLIENT_ID,
@@ -284,8 +285,6 @@ def facebook_message():
     if reply_text:
         facebook_send(sender_id, reply_text)
 
-    # ✅ NEW: Save lead + messages to Supabase
-    # session_id = facebook_{sender_id} — groups this Facebook user's messages
     lead_id = create_or_update_lead(
         client_id=SPARKLE_CLIENT_ID,
         phone=sender_id,
@@ -293,6 +292,10 @@ def facebook_message():
         channel="facebook",
         urgency=result.get("urgency", "low")
     )
+
+    # ✅ Auto-update status to "booked" when Sarah confirms the booking
+    if result.get("booking_confirmed"):
+        update_lead_status(lead_id, "booked")
 
     save_message(
         client_id=SPARKLE_CLIENT_ID,
@@ -359,15 +362,17 @@ def webchat_message():
 
     reply_text = result.get("reply", "").strip()
 
-    # ✅ NEW: Save lead + messages to Supabase
-    # session_id = webchat_{sender_id} — sender_id is already a random ID from the widget
     lead_id = create_or_update_lead(
         client_id=SPARKLE_CLIENT_ID,
-        phone=sender_id,
+        phone=result.get("phone_number") or sender_id,
         name=result.get("name"),
         channel="webchat",
         urgency=result.get("urgency", "low")
     )
+
+    # ✅ Auto-update status to "booked" when Sarah confirms the booking
+    if result.get("booking_confirmed"):
+        update_lead_status(lead_id, "booked")
 
     save_message(
         client_id=SPARKLE_CLIENT_ID,
